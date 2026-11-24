@@ -56,12 +56,12 @@ function entry(list, id, title, extra) {
   }, o && (() => { S[list] = S[list].filter(y => y.id !== id); }));
 }
 const note = x => inp('Nota (opcional)', 'note', x.note, 'autocomplete="off"');
-const cfgFields = c => inp('Sueldo mensual en pesos', 'income', show(c.income), N) + inp('Día de cobro (1 a 28)', 'payday', c.payday || 1, 'inputmode="numeric"') + inp('¿Cuánto gastás por mes en el día a día? (sin fijos ni cuotas)', 'estimate', show(c.estimate), N) + inp('Cotización del dólar que usás', 'rate', show(c.rate), N);
+const cfgFields = c => inp('Sueldo mensual en pesos', 'income', show(c.income), N) + inp('Día de cobro (1 a 28)', 'payday', c.payday || 1, 'inputmode="numeric"') + inp('¿Cuánto calculás gastar en todo el mes, aproximado? Incluí todo: alquiler, servicios, cuotas, comida, salidas…', 'estimate', show(c.estimate), N) + inp('Cotización del dólar que usás', 'rate', show(c.rate), N);
 function setCfg(f) {
   const payday = Number(f.payday), income = num(f.income), rate = num(f.rate), estimate = num(f.estimate);
   if (!(income > 0)) return 'Poné tu sueldo.';
   if (!Number.isInteger(payday) || payday < 1 || payday > 28) return 'El día de cobro va de 1 a 28.';
-  if (!(estimate > 0)) return 'Poné una estimación del gasto diario mensual.';
+  if (!(estimate > 0)) return 'Poné cuánto calculás gastar en el mes.';
   if (!(rate > 0)) return 'Poné la cotización del dólar.';
   S.cfg = { ...(S.cfg || { since: today() }), income, payday, estimate, rate };
 }
@@ -126,7 +126,7 @@ const V = {
     <button class="btn" data-f="expenses">Anotar gasto</button>
     <div class="card hero"><p class="mut">Ahorro sugerido este mes</p>${r.target > 0
       ? `<div class="pct">${nf2.format(Math.round(r.pct * 10) / 10)}%</div><p><b>${money(r.target)}</b> · aprox. ${money(r.target / S.cfg.rate, 'USD')}</p>${bar(r.saved / r.target * 100)}<p class="mut">Guardaste ${money(r.saved)}</p>`
-      : `<div class="pct">0%</div><p>Con estos números no queda margen. El día a día suma ${money(Math.max(r.typical, r.spent))}, los fijos ${money(r.fixed)} y las cuotas ${money(r.inst)}.</p>`}<button class="btn s" data-f="savings">Guardé plata</button></div>
+      : `<div class="pct">0%</div><p>De los ${money(r.income)} que ganás, ${r.spent > r.typical ? 'lo gastado más los fijos y cuotas suma' : 'calculamos que vas a usar'} ${money(r.fixed + r.inst + Math.max(r.typical, r.spent))}: no sobra para ahorrar.</p>`}${r.over ? `<p class="bad">Tus fijos y cuotas (${money(r.fixed + r.inst)}) ya superan los ${money(S.cfg.estimate)} que calculaste para el mes. Revisalo en Ajustes.</p>` : ''}<button class="btn s" data-f="savings">Guardé plata</button></div>
     ${goal}
     ${bk ? '<div class="card"><b>Hacé una copia</b><p class="mut">Tus datos están solo en este celular.</p><button class="btn s" data-a="export">Exportar copia</button></div>' : ''}
     <h2>Gastos de hoy</h2><div class="card">${ex.map(e => row('expenses', e, e.note || e.cat, e.cat, money(e.amount, e.cur))).join('') || '<p class="mut">Todavía no anotaste nada.</p>'}</div>`;
@@ -137,7 +137,7 @@ const V = {
     const cs = Object.entries(by).sort((a, b) => b[1] - a[1]);
     const all = [...S.expenses.map(x => ['expenses', x, x.note || x.cat]), ...S.incomes.map(x => ['incomes', x, x.note || 'Ingreso extra']), ...S.savings.map(x => ['savings', x, x.note || 'Ahorro'])].filter(a => Calc.inP(a[1], r.p)).sort((a, b) => b[1].date.localeCompare(a[1].date));
     return `<h1>Tu mes</h1><p class="mut">Desde el ${fd(r.p.start)} hasta el próximo cobro, ${fd(r.p.end)}</p>
-    <h2>Cómo sale el ahorro</h2><div class="card">${line('Ingresos', money(r.income))}${line('Gastos fijos', money(-r.fixed))}${line('Cuotas', money(-r.inst))}${line('Día a día ' + (r.spent > r.typical ? '(ya gastado)' : r.learned ? '(tu promedio)' : '(tu estimación)'), money(-Math.max(r.typical, r.spent)))}${line('Margen', money(r.margin))}${line(`Ahorro: ${r.share}% del margen`, money(r.target))}</div>
+    <h2>Cómo sale el ahorro</h2>${r.learned ? '' : `<p class="mut">Calculaste gastar ${money(S.cfg.estimate)} en todo el mes. Es una previsión, todavía no figura como gastado.</p>`}<div class="card">${line('Ingresos', money(r.income))}${line('Gastos fijos', money(-r.fixed))}${line('Cuotas', money(-r.inst))}${line('Día a día ' + (r.spent > r.typical ? '(ya gastado)' : r.learned ? '(tu promedio)' : '(lo que queda de tu estimación)'), money(-Math.max(r.typical, r.spent)))}${line('Margen', money(r.margin))}${line(`Ahorro: ${r.share}% del margen`, money(r.target))}</div>
     <p class="mut">${r.streak ? `Cumpliste ${r.streak} ${r.streak === 1 ? 'mes' : 'meses'} seguidos.` : 'Cada mes que cumplas, la parte a ahorrar sube 5 puntos.'}</p>
     <h2>En qué se fue</h2><div class="card">${cs.map(([c, v]) => `<div class="row block"><span class="split">${esc(c)}<b>${money(v)}</b></span>${bar(v / cs[0][1] * 100)}</div>`).join('') || '<p class="mut">Sin gastos este mes.</p>'}</div>
     ${r.hist.length ? `<h2>Meses anteriores</h2><div class="card">${r.hist.map(h => line('Desde el ' + fd(h.start), money(h.spent) + `<small>Ahorro ${money(h.saved)}</small>`)).join('')}</div>` : ''}
@@ -148,19 +148,19 @@ const V = {
       const i = Calc.installment(x, r.p, S.cfg.payday, S.cfg.rate);
       return row('installments', x, x.name, i.number ? `Cuota ${i.number} de ${x.n}` : x.first >= r.p.end ? `${x.n} cuotas, desde ${fd(x.first)}` : 'Terminada', money(x.total / x.n, x.cur));
     };
-    return `<h1>Fijos y cuotas</h1><h2>Gastos fijos · ${money(r.fixed)}</h2><div class="card">${S.fixed.map(x => row('fixed', x, x.name, 'Todos los meses', money(x.amount, x.cur))).join('') || '<p class="mut">Alquiler, internet, gimnasio…</p>'}</div><button class="btn s" data-f="fixed">Agregar gasto fijo</button>
+    return `<h1>Fijos y cuotas</h1><p class="mut">Ya están incluidos en tu estimación del mes: no se restan dos veces.</p><h2>Gastos fijos · ${money(r.fixed)}</h2><div class="card">${S.fixed.map(x => row('fixed', x, x.name, 'Todos los meses', money(x.amount, x.cur))).join('') || '<p class="mut">Alquiler, internet, gimnasio…</p>'}</div><button class="btn s" data-f="fixed">Agregar gasto fijo</button>
     <h2>Cuotas este mes · ${money(r.inst)}</h2><div class="card">${S.installments.map(cuota).join('') || '<p class="mut">No hay compras en cuotas.</p>'}</div><button class="btn s" data-f="installments">Agregar compra en cuotas</button>`;
   },
   ajustes() {
     const c = S.cfg;
-    return `<h1>Ajustes</h1><button class="card row" data-f="cfg"><span>Tus números<small>Sueldo ${money(c.income)} · cobro el ${c.payday} · dólar ${money(c.rate)}</small></span><b>Editar</b></button><button class="card row" data-f="goal"><span>Meta<small>${esc(S.goal ? S.goal.name : 'Sin meta')}</small></span><b>Editar</b></button>
+    return `<h1>Ajustes</h1><button class="card row" data-f="cfg"><span>Tus números<small>Sueldo ${money(c.income)} · gasto estimado ${money(c.estimate)} · cobro el ${c.payday} · dólar ${money(c.rate)}</small></span><b>Editar</b></button><button class="card row" data-f="goal"><span>Meta<small>${esc(S.goal ? S.goal.name : 'Sin meta')}</small></span><b>Editar</b></button>
     <h2>Copia de seguridad</h2><p class="mut">Tus datos no salen de este celular. Exportá una copia cada tanto y guardala en Archivos o iCloud.</p><button class="btn" data-a="export">Exportar copia</button><button class="btn s" data-a="import">Restaurar copia</button><input type="file" id="file" accept=".json,application/json" hidden>
     <p class="mut">${S.lastBackup ? 'Última copia: ' + new Date(S.lastBackup).toLocaleDateString('es-AR') : 'Todavía no exportaste ninguna copia.'}</p>`;
   }
 };
 function onboarding() {
   $('#nav').style.display = 'none';
-  $('#app').innerHTML = `<h1>Empecemos</h1><p class="mut">Con esto calculamos cuánto podés ahorrar. Se guarda solo en este celular.</p><form id="ob" novalidate>${cfgFields({})}${inp('¿Cuánto del día a día ya gastaste desde el último cobro?', 'already', '', N)}<p class="bad" id="oberr" role="alert"></p><button class="btn">Empezar</button></form><button class="btn s" data-a="import">Restaurar copia</button><input type="file" id="file" accept=".json,application/json" hidden>`;
+  $('#app').innerHTML = `<h1>Empecemos</h1><p class="mut">Con esto calculamos cuánto podés ahorrar. Se guarda solo en este celular.</p><form id="ob" novalidate>${cfgFields({})}${inp('¿Cuánto ya gastaste desde el último cobro? Poné un aproximado, sin gastos fijos ni cuotas', 'already', '', N)}<p class="bad" id="oberr" role="alert"></p><button class="btn">Empezar</button></form><button class="btn s" data-a="import">Restaurar copia</button><input type="file" id="file" accept=".json,application/json" hidden>`;
   $('#ob').onsubmit = e => {
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target)), er = setCfg(f);

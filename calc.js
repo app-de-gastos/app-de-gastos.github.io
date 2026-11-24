@@ -33,7 +33,7 @@
       hist.push({ ...q, spent: spentIn(q), saved: sum(s.savings.filter(e => inP(e, q)).map(e => toArs(e, c.rate))), target: s.targets[q.start] });
     }
     const valid = hist.filter(h => h.spent > 0).slice(0, 3);
-    const typical = valid.length ? sum(valid.map(h => h.spent)) / valid.length : c.estimate;
+    const typical = valid.length ? sum(valid.map(h => h.spent)) / valid.length : Math.max(0, c.estimate - fixed - inst); // estimate = total del mes, con fijos y cuotas adentro
     const spent = spentIn(p);
     const base = income - fixed - inst;
     const margin = base - Math.max(typical, spent);
@@ -48,7 +48,7 @@
     const left = days(parse(today), parse(p.end));
     const pool = base - Math.max(target, saved) - (spent - spentToday);
     const dayBudget = pool / left;
-    return { p, income, extra, fixed, inst, typical, spent, margin, share, streak, target, pct, saved, spentToday, left, dayBudget, today: dayBudget - spentToday, remaining: pool - spentToday, hist, learned: valid.length };
+    return { p, income, extra, fixed, inst, typical, spent, margin, share, streak, target, pct, saved, spentToday, left, dayBudget, today: dayBudget - spentToday, remaining: pool - spentToday, hist, learned: valid.length, over: !valid.length && fixed + inst > c.estimate };
   }
   g.Calc = { compute, period, installment, toArs, iso, parse, inP };
 })(typeof window !== 'undefined' ? window : globalThis);
