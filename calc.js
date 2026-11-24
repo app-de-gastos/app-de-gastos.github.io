@@ -18,11 +18,22 @@
     const n = monthIdx(p.start) - monthIdx(period(i.first, payday).start);
     return n >= 0 && n < i.n ? { number: n + 1, amount: toArs({ amount: i.total / i.n, cur: i.cur }, rate) } : { number: 0, amount: 0 };
   }
+  const isSalary = x => x.kind === 'sueldo' || x.kind === 'parte';
+  // Sueldos cobrados para un período ("for" permite cobrar unos días antes).
+  const salaries = (s, p) => s.incomes.filter(x => isSalary(x) && x.for >= p.start && x.for < p.end);
+  // Sueldo esperado: el último completo cobrado, salvo que se haya editado después en Ajustes.
+  function expected(s, p) {
+    const c = s.cfg, full = s.incomes.filter(x => x.kind === 'sueldo' && x.for < p.start && (!c.incomeAt || x.date >= c.incomeAt)).sort((a, b) => a.for < b.for ? 1 : -1)[0];
+    return full ? sum(salaries(s, period(full.for, c.payday)).map(x => toArs(x, c.rate))) : c.income;
+  }
   function compute(s, today) {
     const c = s.cfg, pd = c.payday, p = period(today, pd);
     const spentIn = q => sum(s.expenses.filter(e => inP(e, q)).map(e => toArs(e, c.rate)));
-    const extra = sum(s.incomes.filter(e => inP(e, p)).map(e => toArs(e, c.rate)));
-    const income = c.income + extra;
+    const extra = sum(s.incomes.filter(e => !isSalary(e) && inP(e, p)).map(e => toArs(e, c.rate)));
+    const exp = expected(s, p), sal = salaries(s, p), salary = sum(sal.map(x => toArs(x, c.rate)));
+    const paid = sal.some(x => x.kind === 'sueldo');
+    const base0 = paid ? salary : Math.max(exp, salary); // con un adelanto, se sigue esperando el resto
+    const income = base0 + extra;
     const fixed = sum(s.fixed.map(f => toArs(f, c.rate)));
     const inst = sum(s.installments.map(i => installment(i, p, pd, c.rate).amount));
     // Solo períodos completos desde que se usa la app.
@@ -48,7 +59,7 @@
     const left = days(parse(today), parse(p.end));
     const pool = base - Math.max(target, saved) - (spent - spentToday);
     const dayBudget = pool / left;
-    return { p, income, extra, fixed, inst, typical, spent, margin, share, streak, target, pct, saved, spentToday, left, dayBudget, today: dayBudget - spentToday, remaining: pool - spentToday, hist, learned: valid.length, over: !valid.length && fixed + inst > c.estimate };
+    return { p, expected: exp, salary, paid, base0, income, extra, fixed, inst, typical, spent, margin, share, streak, target, pct, saved, spentToday, left, dayBudget, today: dayBudget - spentToday, remaining: pool - spentToday, hist, learned: valid.length, over: !valid.length && fixed + inst > c.estimate };
   }
-  g.Calc = { compute, period, installment, toArs, iso, parse, inP };
+  g.Calc = { compute, expected, isSalary, period, installment, toArs, iso, parse, inP };
 })(typeof window !== 'undefined' ? window : globalThis);

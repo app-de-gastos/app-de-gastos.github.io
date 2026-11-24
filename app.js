@@ -36,15 +36,15 @@ function sheet(title, html, onSave, onDelete) {
     e.preventDefault();
     const err = onSave(Object.fromEntries(new FormData(e.target)));
     if (err) { $('#err').textContent = err; return; }
-    if (save()) { d.close(); render(); toast('Guardado'); }
+    if (save()) { d.close(); render(); toast(sheet.msg || 'Guardado'); sheet.msg = ''; }
   };
   $('#no').onclick = () => d.close();
   if (onDelete) $('#del').onclick = () => { if (confirm('¿Borrar? No se puede deshacer.')) { onDelete(); save(); d.close(); render(); } };
   d.showModal();
   const a = d.querySelector('.amt'); if (a) a.focus();
 }
-function entry(list, id, title, extra) {
-  const o = S[list].find(x => x.id === id), x = o || { date: today() };
+function entry(list, id, title, extra, preset, more) {
+  const o = S[list].find(x => x.id === id), x = o || { date: today(), ...preset };
   sheet(title, amt(x.amount) + curs(x.cur) + extra(x) + inp('Fecha', 'date', x.date, `type="date" max="${today()}"`), f => {
     const amount = num(f.amount);
     if (!(amount > 0)) return 'Poné un monto mayor a cero.';
@@ -52,22 +52,35 @@ function entry(list, id, title, extra) {
     const v = { amount, cur: f.cur, cat: f.cat, note: (f.note || '').trim(), date: f.date };
     // El dólar queda a la cotización del día en que se anotó.
     v.rate = f.cur === 'USD' ? (o && o.cur === 'USD' ? o.rate : S.cfg.rate) : undefined;
+    if (more) Object.assign(v, more(f));
+    const before = Calc.compute(S, today()).target;
     o ? Object.assign(o, v) : S[list].push({ id: uid(), ...v });
+    const after = Calc.compute(S, today()).target;
+    if (list === 'incomes' && Math.round(after) !== Math.round(before)) sheet.msg = `Ahorro sugerido: ${money(before)} → ${money(after)}`;
   }, o && (() => { S[list] = S[list].filter(y => y.id !== id); }));
 }
 const note = x => inp('Nota (opcional)', 'note', x.note, 'autocomplete="off"');
-const cfgFields = c => inp('Sueldo mensual en pesos', 'income', show(c.income), N) + inp('Día de cobro (1 a 28)', 'payday', c.payday || 1, 'inputmode="numeric"') + inp('¿Cuánto calculás gastar en todo el mes, aproximado? Incluí todo: alquiler, servicios, cuotas, comida, salidas…', 'estimate', show(c.estimate), N) + inp('Cotización del dólar que usás', 'rate', show(c.rate), N);
+const cfgFields = c => inp('¿Cuánto cobrás por mes, aproximado? (en pesos)', 'income', show(c.income), N) + inp('Día de cobro (1 a 28)', 'payday', c.payday || 1, 'inputmode="numeric"') + inp('¿Cuánto calculás gastar en todo el mes, aproximado? Incluí todo: alquiler, servicios, cuotas, comida, salidas…', 'estimate', show(c.estimate), N) + inp('Cotización del dólar que usás', 'rate', show(c.rate), N);
 function setCfg(f) {
   const payday = Number(f.payday), income = num(f.income), rate = num(f.rate), estimate = num(f.estimate);
   if (!(income > 0)) return 'Poné tu sueldo.';
   if (!Number.isInteger(payday) || payday < 1 || payday > 28) return 'El día de cobro va de 1 a 28.';
   if (!(estimate > 0)) return 'Poné cuánto calculás gastar en el mes.';
   if (!(rate > 0)) return 'Poné la cotización del dólar.';
-  S.cfg = { ...(S.cfg || { since: today() }), income, payday, estimate, rate };
+  const was = S.cfg && Calc.expected(S, Calc.period(today(), S.cfg.payday));
+  S.cfg = { ...(S.cfg || { since: today() }), ...(S.cfg && income !== was ? { incomeAt: today() } : {}), income: S.cfg && income === was ? S.cfg.income : income, payday, estimate, rate };
 }
 const forms = {
   expenses: id => entry('expenses', id, id ? 'Editar gasto' : 'Nuevo gasto', x => chips('cat', [...new Set([...CATS, ...(x.cat ? [x.cat] : [])])].map(c => [c, esc(c)]), x.cat || 'Otros') + note(x)),
-  incomes: id => entry('incomes', id, 'Ingreso extra', note),
+  incomes: id => entry('incomes', id, 'Ingreso extra', x => '<p class="mut">Un laburo, una venta, un regalo. Cuenta solo para este mes.</p>' + note(x)),
+  salary: id => {
+    const pd = S.cfg.payday, r = Calc.compute(S, today()), p = r.p, next = Calc.period(today(), pd, 1);
+    const left = Math.max(0, r.base0 - r.salary);
+    const near = r.left <= 7;
+    entry('incomes', id, 'Cobré el sueldo', x => chips('kind', [['sueldo', 'Completo'], ['parte', 'Una parte']], x.kind)
+      + (id ? '' : chips('for', [[p.start, 'Para este mes'], [next.start, 'Para el que viene']], x.for)) + note(x),
+    { amount: near ? r.expected : left, kind: 'sueldo', for: near ? next.start : p.start }, f => ({ kind: f.kind, ...(f.for ? { for: f.for } : {}) }));
+  },
   savings: id => entry('savings', id, 'Guardé plata', note),
   fixed: id => {
     const o = S.fixed.find(x => x.id === id), x = o || {};
@@ -95,11 +108,11 @@ const forms = {
       S.goal = { amount: num(f.amount), cur: f.cur, name: f.name.trim(), initial: num(f.initial) };
     }, S.goal && (() => { S.goal = null; }));
   },
-  cfg: () => sheet('Tus números', cfgFields(S.cfg), setCfg)
+  cfg: () => sheet('Tus números', cfgFields({ ...S.cfg, income: Calc.expected(S, Calc.period(today(), S.cfg.payday)) }), setCfg)
 };
 function addMenu() {
   const d = $('#dlg');
-  d.innerHTML = `<h1>¿Qué anotamos?</h1>${[['expenses', 'Gasto'], ['installments', 'Compra en cuotas'], ['savings', 'Guardé plata'], ['incomes', 'Ingreso extra']].map(([k, t]) => `<button class="btn s" data-f="${k}">${t}</button>`).join('')}<button class="btn d" id="no">Cancelar</button>`;
+  d.innerHTML = `<h1>¿Qué anotamos?</h1>${[['expenses', 'Gasto'], ['installments', 'Compra en cuotas'], ['savings', 'Guardé plata'], ['salary', 'Cobré el sueldo'], ['incomes', 'Ingreso extra']].map(([k, t]) => `<button class="btn s" data-f="${k}">${t}</button>`).join('')}<button class="btn d" id="no">Cancelar</button>`;
   $('#no').onclick = () => d.close();
   d.showModal();
 }
@@ -124,6 +137,7 @@ const V = {
     return `<p class="mut">${r.today >= 0 ? 'Hoy podés gastar' : 'Hoy te pasaste por'}</p><div class="big ${r.today < 0 ? 'bad' : ''}">${money(Math.abs(r.today))}</div>
     <p class="mut">${r.remaining < 0 ? `Vas ${money(-r.remaining)} por encima del mes.` : `Quedan ${money(r.remaining)} para ${r.left} ${r.left === 1 ? 'día' : 'días'}, ya separado el ahorro.`}</p>
     <button class="btn" data-f="expenses">Anotar gasto</button>
+    <div class="card"><p class="mut">Ingresos de este mes</p><b>${money(r.income)}</b><p class="mut">${r.paid ? `Sueldo cobrado ${money(r.salary)}` : r.salary ? `Cobraste ${money(r.salary)} del sueldo; esperás ${money(r.base0)}` : `Sueldo esperado ${money(r.expected)}, todavía sin cobrar`}${r.extra ? ` · extras ${money(r.extra)}` : ''}</p>${r.paid ? '' : '<button class="btn s" data-f="salary">Cobré el sueldo</button>'}<button class="btn s" data-f="incomes">Me entró un extra</button></div>
     <div class="card hero"><p class="mut">Ahorro sugerido este mes</p>${r.target > 0
       ? `<div class="pct">${nf2.format(Math.round(r.pct * 10) / 10)}%</div><p><b>${money(r.target)}</b> · aprox. ${money(r.target / S.cfg.rate, 'USD')}</p>${bar(r.saved / r.target * 100)}<p class="mut">Guardaste ${money(r.saved)}</p>`
       : `<div class="pct">0%</div><p>De los ${money(r.income)} que ganás, ${r.spent > r.typical ? 'lo gastado más los fijos y cuotas suma' : 'calculamos que vas a usar'} ${money(r.fixed + r.inst + Math.max(r.typical, r.spent))}: no sobra para ahorrar.</p>`}${r.over ? `<p class="bad">Tus fijos y cuotas (${money(r.fixed + r.inst)}) ya superan los ${money(S.cfg.estimate)} que calculaste para el mes. Revisalo en Ajustes.</p>` : ''}<button class="btn s" data-f="savings">Guardé plata</button></div>
@@ -135,13 +149,13 @@ const V = {
     const by = {};
     S.expenses.filter(e => Calc.inP(e, r.p)).forEach(e => { by[e.cat] = (by[e.cat] || 0) + Calc.toArs(e, S.cfg.rate); });
     const cs = Object.entries(by).sort((a, b) => b[1] - a[1]);
-    const all = [...S.expenses.map(x => ['expenses', x, x.note || x.cat]), ...S.incomes.map(x => ['incomes', x, x.note || 'Ingreso extra']), ...S.savings.map(x => ['savings', x, x.note || 'Ahorro'])].filter(a => Calc.inP(a[1], r.p)).sort((a, b) => b[1].date.localeCompare(a[1].date));
+    const all = [...S.expenses.map(x => ['expenses', x, x.note || x.cat]), ...S.incomes.map(x => Calc.isSalary(x) ? ['salary', x, x.note || 'Sueldo'] : ['incomes', x, x.note || 'Ingreso extra']), ...S.savings.map(x => ['savings', x, x.note || 'Ahorro'])].filter(a => Calc.inP(a[1], r.p)).sort((a, b) => b[1].date.localeCompare(a[1].date));
     return `<h1>Tu mes</h1><p class="mut">Desde el ${fd(r.p.start)} hasta el próximo cobro, ${fd(r.p.end)}</p>
-    <h2>Cómo sale el ahorro</h2>${r.learned ? '' : `<p class="mut">Calculaste gastar ${money(S.cfg.estimate)} en todo el mes. Es una previsión, todavía no figura como gastado.</p>`}<div class="card">${line('Ingresos', money(r.income))}${line('Gastos fijos', money(-r.fixed))}${line('Cuotas', money(-r.inst))}${line('Día a día ' + (r.spent > r.typical ? '(ya gastado)' : r.learned ? '(tu promedio)' : '(lo que queda de tu estimación)'), money(-Math.max(r.typical, r.spent)))}${line('Margen', money(r.margin))}${line(`Ahorro: ${r.share}% del margen`, money(r.target))}</div>
+    <h2>Cómo sale el ahorro</h2>${r.learned ? '' : `<p class="mut">Calculaste gastar ${money(S.cfg.estimate)} en todo el mes. Es una previsión, todavía no figura como gastado.</p>`}<div class="card">${line(r.paid ? 'Sueldo cobrado' : 'Sueldo esperado', money(r.base0))}${r.extra ? line('Extras de este mes', money(r.extra)) : ''}${line('Gastos fijos', money(-r.fixed))}${line('Cuotas', money(-r.inst))}${line('Día a día ' + (r.spent > r.typical ? '(ya gastado)' : r.learned ? '(tu promedio)' : '(lo que queda de tu estimación)'), money(-Math.max(r.typical, r.spent)))}${line('Margen', money(r.margin))}${line(`Ahorro: ${r.share}% del margen`, money(r.target))}</div>
     <p class="mut">${r.streak ? `Cumpliste ${r.streak} ${r.streak === 1 ? 'mes' : 'meses'} seguidos.` : 'Cada mes que cumplas, la parte a ahorrar sube 5 puntos.'}</p>
     <h2>En qué se fue</h2><div class="card">${cs.map(([c, v]) => `<div class="row block"><span class="split">${esc(c)}<b>${money(v)}</b></span>${bar(v / cs[0][1] * 100)}</div>`).join('') || '<p class="mut">Sin gastos este mes.</p>'}</div>
     ${r.hist.length ? `<h2>Meses anteriores</h2><div class="card">${r.hist.map(h => line('Desde el ' + fd(h.start), money(h.spent) + `<small>Ahorro ${money(h.saved)}</small>`)).join('')}</div>` : ''}
-    <h2>Movimientos</h2><div class="card">${all.map(([k, x, t]) => row(k, x, t, fd(x.date), (k === 'incomes' ? '+' : '') + money(x.amount, x.cur))).join('') || '<p class="mut">Nada por ahora.</p>'}</div>`;
+    <h2>Movimientos</h2><div class="card">${all.map(([k, x, t]) => row(k, x, t, fd(x.date), (k === 'incomes' || k === 'salary' ? '+' : '') + money(x.amount, x.cur))).join('') || '<p class="mut">Nada por ahora.</p>'}</div>`;
   },
   fijos(r) {
     const cuota = x => {
@@ -153,7 +167,7 @@ const V = {
   },
   ajustes() {
     const c = S.cfg;
-    return `<h1>Ajustes</h1><button class="card row" data-f="cfg"><span>Tus números<small>Sueldo ${money(c.income)} · gasto estimado ${money(c.estimate)} · cobro el ${c.payday} · dólar ${money(c.rate)}</small></span><b>Editar</b></button><button class="card row" data-f="goal"><span>Meta<small>${esc(S.goal ? S.goal.name : 'Sin meta')}</small></span><b>Editar</b></button>
+    return `<h1>Ajustes</h1><button class="card row" data-f="cfg"><span>Tus números<small>Sueldo esperado ${money(Calc.expected(S, Calc.period(today(), c.payday)))} · gasto estimado ${money(c.estimate)} · cobro el ${c.payday} · dólar ${money(c.rate)}</small></span><b>Editar</b></button><button class="card row" data-f="goal"><span>Meta<small>${esc(S.goal ? S.goal.name : 'Sin meta')}</small></span><b>Editar</b></button>
     <h2>Copia de seguridad</h2><p class="mut">Tus datos no salen de este celular. Exportá una copia cada tanto y guardala en Archivos o iCloud.</p><button class="btn" data-a="export">Exportar copia</button><button class="btn s" data-a="import">Restaurar copia</button><input type="file" id="file" accept=".json,application/json" hidden>
     <p class="mut">${S.lastBackup ? 'Última copia: ' + new Date(S.lastBackup).toLocaleDateString('es-AR') : 'Todavía no exportaste ninguna copia.'}</p>`;
   }
@@ -193,7 +207,7 @@ function validBackup(d) {
   const day = s => /^\d{4}-\d\d-\d\d$/.test(s), c = d.cfg;
   const list = (a, k, dk) => Array.isArray(a) && a.every(x => typeof x.id === 'string' && x[k] > 0 && ['ARS', 'USD'].includes(x.cur) && (!dk || day(x[dk])));
   return c.income > 0 && c.rate > 0 && c.estimate > 0 && day(c.since) && Number.isInteger(c.payday) && c.payday >= 1 && c.payday <= 28
-    && ['expenses', 'incomes', 'savings'].every(k => list(d[k], 'amount', 'date')) && list(d.fixed, 'amount')
+    && ['expenses', 'incomes', 'savings'].every(k => list(d[k], 'amount', 'date')) && d.incomes.every(x => !Calc.isSalary(x) || day(x.for)) && list(d.fixed, 'amount')
     && list(d.installments, 'total', 'first') && d.installments.every(x => Number.isInteger(x.n) && x.n > 0);
 }
 function importar() {
