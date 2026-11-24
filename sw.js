@@ -1,4 +1,4 @@
-const C = 'gastos-4', F = ['./', 'index.html', 'style.css', 'calc.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
+const C = 'gastos-5', F = ['./', 'index.html', 'style.css', 'calc.js', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 self.addEventListener('install', e => e.waitUntil(caches.open(C).then(c => c.addAll(F.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting())));
 self.addEventListener('activate', e => e.waitUntil(caches.keys().then(k => Promise.all(k.filter(x => x.startsWith('gastos-') && x !== C).map(x => caches.delete(x)))).then(() => self.clients.claim())));
 // Primero la red (para recibir mejoras); sin señal, la copia guardada.

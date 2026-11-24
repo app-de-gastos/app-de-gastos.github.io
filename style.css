@@ -20,6 +20,7 @@ button.card{background:var(--card);border:1px solid var(--line)!important;paddin
 .bar{height:9px;border-radius:9px;background:var(--line);overflow:hidden;margin:8px 0}.bar i{display:block;height:100%;background:var(--acc)}
 .btn{display:block;width:100%;min-height:50px;border:0;border-radius:14px;background:var(--acc);color:var(--on);font-weight:600;font-size:17px;margin-top:12px;padding:0 14px}
 .btn.s{background:var(--soft);color:var(--ink)}.hero .btn.s{background:var(--card)}.btn.d{background:none;color:var(--bad)}
+.plain{flex:1;min-width:0;border:0;background:none;color:inherit;font-size:16px;text-align:left;padding:0;overflow-wrap:anywhere}
 .btn.mini{width:auto;margin:0;min-height:44px;font-size:15px}
 nav{position:fixed;inset:auto 0 0;background:var(--card);border-top:1px solid var(--line);display:flex;justify-content:center;align-items:center;padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
 nav button{flex:1;max-width:100px;min-height:48px;border:0;background:none;color:var(--mut);font-weight:600;font-size:13px}
