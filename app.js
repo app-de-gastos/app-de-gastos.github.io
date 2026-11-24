@@ -1,10 +1,15 @@
 const KEY = 'gastos-v1', $ = s => document.querySelector(s);
 const CATS = ['Comida', 'Súper', 'Transporte', 'Salidas', 'Casa', 'Salud', 'Ropa', 'Otros'];
 const fresh = () => ({ cfg: null, expenses: [], incomes: [], savings: [], fixed: [], installments: [], goal: null, targets: {}, lastBackup: null });
+// Modo prueba: fecha simulada y datos en otra clave; los reales no se tocan.
+const SIMKEY = 'gastos-sim', SIMDATE = 'gastos-sim-fecha';
+let SIM = null;
+try { SIM = localStorage.getItem(SIMKEY) ? localStorage.getItem(SIMDATE) : null; } catch (e) {}
+const key = () => SIM ? SIMKEY : KEY;
 let S = load(), tab = 'hoy';
-function load() { try { return { ...fresh(), ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch (e) { return fresh(); } }
-function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); return true; } catch (e) { alert('No se pudo guardar en este celular. Exportá una copia desde Ajustes.'); return false; } }
-const today = () => Calc.iso(new Date());
+function load() { try { return { ...fresh(), ...JSON.parse(localStorage.getItem(key()) || '{}') }; } catch (e) { return fresh(); } }
+function save() { try { localStorage.setItem(key(), JSON.stringify(S)); return true; } catch (e) { alert('No se pudo guardar en este celular. Exportá una copia desde Ajustes.'); return false; } }
+const today = () => SIM || Calc.iso(new Date());
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';');
 const nf = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 0 }), nf2 = new Intl.NumberFormat('es-AR', { maximumFractionDigits: 2 });
 const money = (n, cur) => (n < 0 && Math.round(n) ? '−' : '') + (cur === 'USD' ? 'US$ ' + nf2.format(Math.abs(n)) : '$ ' + nf.format(Math.abs(n)));
@@ -168,8 +173,9 @@ const V = {
   ajustes() {
     const c = S.cfg;
     return `<h1>Ajustes</h1><button class="card row" data-f="cfg"><span>Tus números<small>Sueldo esperado ${money(Calc.expected(S, Calc.period(today(), c.payday)))} · gasto estimado ${money(c.estimate)} · cobro el ${c.payday} · dólar ${money(c.rate)}</small></span><b>Editar</b></button><button class="card row" data-f="goal"><span>Meta<small>${esc(S.goal ? S.goal.name : 'Sin meta')}</small></span><b>Editar</b></button>
-    <h2>Copia de seguridad</h2><p class="mut">Tus datos no salen de este celular. Exportá una copia cada tanto y guardala en Archivos o iCloud.</p><button class="btn" data-a="export">Exportar copia</button><button class="btn s" data-a="import">Restaurar copia</button><input type="file" id="file" accept=".json,application/json" hidden>
-    <p class="mut">${S.lastBackup ? 'Última copia: ' + new Date(S.lastBackup).toLocaleDateString('es-AR') : 'Todavía no exportaste ninguna copia.'}</p>`;
+    ${SIM ? '' : '<h2>Modo prueba</h2><p class="mut">Simulá un principio de mes: cobrás, gastás y adelantás los días. No cambia tus datos.</p><button class="btn s" data-a="sim">Simular principio de mes</button>'}
+    ${SIM ? '<p class="mut">La copia de seguridad está pausada durante la prueba.</p>' : `<h2>Copia de seguridad</h2><p class="mut">Tus datos no salen de este celular. Exportá una copia cada tanto y guardala en Archivos o iCloud.</p><button class="btn" data-a="export">Exportar copia</button><button class="btn s" data-a="import">Restaurar copia</button><input type="file" id="file" accept=".json,application/json" hidden>
+    <p class="mut">${S.lastBackup ? 'Última copia: ' + new Date(S.lastBackup).toLocaleDateString('es-AR') : 'Todavía no exportaste ninguna copia.'}</p>`}`;
   }
 };
 function onboarding() {
@@ -190,12 +196,31 @@ function render() {
   if (!S.cfg) return onboarding();
   const r = Calc.compute(S, today());
   if (S.targets[r.p.start] !== r.target) { S.targets[r.p.start] = r.target; save(); }
-  $('#app').innerHTML = V[tab](r);
+  $('#app').innerHTML = (SIM ? simBar() : '') + V[tab](r);
   $('#nav').style.display = '';
   const b = (k, t) => `<button data-t="${k}" ${tab === k ? 'aria-current="page"' : ''}>${t}</button>`;
   $('#nav').innerHTML = b('hoy', 'Hoy') + b('mes', 'Mes') + '<button class="add" data-a="add" aria-label="Agregar movimiento">+</button>' + b('fijos', 'Fijos') + b('ajustes', 'Ajustes');
 }
+const simBar = () => `<div class="card"><b>Modo prueba · ${fd(SIM)}</b><p class="mut">Nada de esto toca tus datos reales.</p><div class="chips"><button class="btn s mini" data-a="day">+1 día</button><button class="btn s mini" data-a="week">+7 días</button><button class="btn s mini" data-a="month">Próximo cobro</button><button class="btn d mini" data-a="simEnd">Salir</button></div></div>`;
+function simStart() {
+  if (SIM || !confirm('Vas a probar un principio de mes con una copia de tu sueldo, fijos y cuotas. Tus datos reales no cambian. ¿Empezamos?')) return;
+  const p = Calc.period(today(), S.cfg.payday, 1), cfg = { ...S.cfg, income: Calc.expected(S, p), since: p.start };
+  delete cfg.incomeAt;
+  const copy = { ...fresh(), ...JSON.parse(JSON.stringify({ fixed: S.fixed, installments: S.installments, goal: S.goal })), cfg, lastBackup: Date.now() };
+  try { localStorage.setItem(SIMKEY, JSON.stringify(copy)); localStorage.setItem(SIMDATE, p.start); } catch (e) { alert('No se pudo iniciar la prueba.'); return; }
+  SIM = p.start; S = load(); tab = 'hoy'; render(); scrollTo(0, 0);
+}
+function simMove(date) {
+  SIM = date; localStorage.setItem(SIMDATE, SIM); render(); scrollTo(0, 0);
+}
+function simDays(n) { const d = Calc.parse(SIM); d.setDate(d.getDate() + n); simMove(Calc.iso(d)); }
+function simEnd() {
+  if (!confirm('Se borra la prueba y volvés a tus datos reales. ¿Salimos?')) return;
+  localStorage.removeItem(SIMKEY); localStorage.removeItem(SIMDATE);
+  SIM = null; S = load(); tab = 'hoy'; render(); scrollTo(0, 0); toast('Volviste a tus datos reales');
+}
 async function exportar() {
+  if (SIM) return;
   const file = new File([JSON.stringify(S, null, 1)], `gastos-${today()}.json`, { type: 'application/json' });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file] });
@@ -211,6 +236,7 @@ function validBackup(d) {
     && list(d.installments, 'total', 'first') && d.installments.every(x => Number.isInteger(x.n) && x.n > 0);
 }
 function importar() {
+  if (SIM) return;
   const i = $('#file');
   i.value = '';
   i.onchange = async () => {
@@ -228,7 +254,7 @@ document.addEventListener('click', e => {
   if (!b) return;
   if (b.dataset.t) { tab = b.dataset.t; render(); scrollTo(0, 0); }
   else if (b.dataset.f) { if ($('#dlg').open) $('#dlg').close(); forms[b.dataset.f](b.dataset.id); }
-  else ({ add: addMenu, export: exportar, import: importar })[b.dataset.a]();
+  else ({ add: addMenu, export: exportar, import: importar, sim: simStart, simEnd, day: () => simDays(1), week: () => simDays(7), month: () => simMove(Calc.period(SIM, S.cfg.payday, 1).start) })[b.dataset.a]();
 });
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !$('#dlg').open && S.cfg) render(); });
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

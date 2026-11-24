@@ -43,7 +43,9 @@
       if (q.start < c.since) break;
       hist.push({ ...q, spent: spentIn(q), saved: sum(s.savings.filter(e => inP(e, q)).map(e => toArs(e, c.rate))), target: s.targets[q.start] });
     }
-    const valid = hist.filter(h => h.spent > 0).slice(0, 3);
+    // Un mes enseña solo si se anotaron gastos en 10 días distintos; si no, el promedio engaña.
+    const daysLogged = q => new Set(s.expenses.filter(e => inP(e, q)).map(e => e.date)).size;
+    const valid = hist.filter(h => daysLogged(h) >= 10).slice(0, 3);
     const typical = valid.length ? sum(valid.map(h => h.spent)) / valid.length : Math.max(0, c.estimate - fixed - inst); // estimate = total del mes, con fijos y cuotas adentro
     const spent = spentIn(p);
     const base = income - fixed - inst;
